@@ -1,0 +1,264 @@
+// ====== 資源載入 ======
+const ASSETS = {
+  penguin: {
+    bg: "img/penguin_background.png",
+    normal: "img/penguin_normal.png",
+    alt: "img/penguin_crying.png",
+  },
+  fugu: {
+    bg: "img/fugu_background.png",
+    normal: "img/fugu_normal.png",
+    alt: "img/fugu_inflated.png",
+  },
+};
+
+// 你已經在 Java 版調好座標，這邊先放一組示例；
+// 之後只要改這兩個陣列就能微調網頁版位置（以 100x100 左上角為準）
+const HOLES_PENGUIN = [
+  { x: 95, y: 190 }, { x: 255, y: 190 }, { x: 415, y: 190 },
+  { x: 65, y: 300 }, { x: 185, y: 300 }, { x: 305, y: 300 }, { x: 425, y: 300 }
+];
+const HOLES_FUGU = [
+  { x: 90, y: 185 }, { x: 250, y: 185 }, { x: 410, y: 185 },
+  { x: 70, y: 295 }, { x: 190, y: 295 }, { x: 310, y: 295 }, { x: 430, y: 295 }
+];
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("載入失敗：" + src));
+    img.src = src + "?v=" + Date.now(); // 破快取
+  });
+}
+
+// ====== DOM ======
+const timeEl = document.getElementById("time");
+const scoreEl = document.getElementById("score");
+const pauseBtn = document.getElementById("pauseBtn");
+const exitBtn = document.getElementById("exitBtn");
+const selectView = document.getElementById("selectView");
+const playPenguin = document.getElementById("playPenguin");
+const playFugu = document.getElementById("playFugu");
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+// ====== 遊戲狀態 ======
+let mode = null;               // "penguin" | "fugu"
+let imgs = {};                 // { bg, normal, alt }
+let holes = [];                // 當前關卡洞座標
+let score = 0, remaining = 30;
+let paused = false, gameOver = false;
+
+// 角色當前狀態
+const ACTOR_W = 100, ACTOR_H = 100;
+let actorVisible = false;
+let actorX = 0, actorY = 0;
+let actorIcon = null;          // imgs.normal / imgs.alt
+let hideTimer = null;
+
+// 計時器
+let spawnTimer = null;         // setTimeout id
+let countdownTimer = null;     // setInterval id
+let baseDelayMs = 1000;
+const minDelayMs = 650;
+const jitterMs = 80;
+
+// ====== 主流程 ======
+playPenguin.onclick = () => startGame("penguin");
+playFugu.onclick = () => startGame("fugu");
+
+pauseBtn.onclick = () => {
+  if (!mode) return;
+  if (paused) resumeGame();
+  else pauseGame();
+};
+
+exitBtn.onclick = () => {
+  stopAll();
+  switchToSelect();
+};
+
+canvas.addEventListener("mousedown", (e) => {
+  if (!actorVisible || paused || gameOver) return;
+
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+
+  if (mx >= actorX && mx <= actorX + ACTOR_W && my >= actorY && my <= actorY + ACTOR_H) {
+    // 被打中
+    actorIcon = imgs.alt;
+    score += 1;
+    scoreEl.textContent = String(score);
+
+    // 300ms 後隱藏
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      actorVisible = false;
+      draw();
+    }, 300);
+
+    draw();
+  }
+});
+
+async function startGame(which) {
+  try {
+    mode = which;
+    paused = false;
+    gameOver = false;
+    score = 0;
+    remaining = 30;
+    baseDelayMs = 1000;
+    updateTime();
+    scoreEl.textContent = "0";
+
+    selectView.style.display = "none";
+    canvas.style.display = "block";
+    pauseBtn.disabled = false;
+    exitBtn.disabled = false;
+    pauseBtn.textContent = "暫停";
+
+    // 載圖
+    const set = ASSETS[mode];
+    const [bg, normal, alt] = await Promise.all([
+      loadImage(set.bg), loadImage(set.normal), loadImage(set.alt)
+    ]);
+    imgs = { bg, normal, alt };
+    holes = (mode === "penguin") ? HOLES_PENGUIN : HOLES_FUGU;
+
+    // 倒數
+    clearInterval(countdownTimer);
+    countdownTimer = setInterval(() => {
+      remaining -= 1;
+      updateTime();
+      if (remaining <= 0) endGame();
+      if (remaining <= 10 && remaining > 0) {
+        baseDelayMs = Math.max(minDelayMs, baseDelayMs - 20);
+      }
+    }, 1000);
+
+    // 角色出現節奏
+    scheduleNextSpawn(true); // 立刻出第一隻
+  } catch (err) {
+    alert("開啟失敗：" + err.message);
+    console.error(err);
+    switchToSelect();
+  }
+}
+
+function endGame() {
+  if (gameOver) return;
+  gameOver = true;
+  stopTimers();
+  actorVisible = false;
+  draw();
+
+  setTimeout(() => {
+    const again = confirm(`時間到！\n分數：${score}\n要再玩一次嗎？`);
+    if (again) startGame(mode);
+    else switchToSelect();
+  }, 50);
+}
+
+function pauseGame() {
+  if (paused || gameOver) return;
+  paused = true;
+  stopTimers();
+  actorVisible = false; // 暫停時藏起來，避免被打
+  pauseBtn.textContent = "恢復";
+  draw();
+}
+
+function resumeGame() {
+  if (!paused || gameOver) return;
+  paused = false;
+  pauseBtn.textContent = "暫停";
+  // 重新開 timer，並立刻生一隻
+  scheduleNextSpawn(true);
+  restartCountdown();
+}
+
+function stopTimers() {
+  clearTimeout(spawnTimer);
+  clearInterval(countdownTimer);
+}
+
+function restartCountdown() {
+  clearInterval(countdownTimer);
+  countdownTimer = setInterval(() => {
+    remaining -= 1;
+    updateTime();
+    if (remaining <= 0) endGame();
+    if (remaining <= 10 && remaining > 0) {
+      baseDelayMs = Math.max(minDelayMs, baseDelayMs - 20);
+    }
+  }, 1000);
+}
+
+function scheduleNextSpawn(immediate = false) {
+  clearTimeout(spawnTimer);
+  const delay = immediate ? 0 : clamp(baseDelayMs + rndInt(-jitterMs, jitterMs), minDelayMs, 2000);
+  spawnTimer = setTimeout(() => {
+    spawnOne();
+    // 排下一次
+    scheduleNextSpawn(false);
+  }, delay);
+}
+
+function spawnOne() {
+  if (paused || gameOver) return;
+  const idx = Math.floor(Math.random() * holes.length);
+  const { x, y } = holes[idx];
+  actorX = x; actorY = y;
+  actorIcon = imgs.normal;
+  actorVisible = true;
+
+  // 保險：若 900ms 內沒被打自動消失，避免殘留
+  clearTimeout(hideTimer);
+  hideTimer = setTimeout(() => {
+    actorVisible = false;
+    draw();
+  }, Math.max(300, baseDelayMs - 100));
+
+  draw();
+}
+
+// ====== 畫面 ======
+function updateTime() {
+  timeEl.textContent = `00:${String(Math.max(0, remaining)).padStart(2, "0")}`;
+}
+
+function draw() {
+  // 背景
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (imgs.bg) ctx.drawImage(imgs.bg, 0, 0, canvas.width, canvas.height);
+
+  // 角色
+  if (actorVisible && actorIcon) {
+    ctx.drawImage(actorIcon, actorX, actorY, ACTOR_W, ACTOR_H);
+  }
+}
+
+function switchToSelect() {
+  stopAll();
+  canvas.style.display = "none";
+  selectView.style.display = "flex";
+  pauseBtn.disabled = true;
+  exitBtn.disabled = true;
+  timeEl.textContent = "00:30";
+  scoreEl.textContent = "0";
+  mode = null;
+}
+
+function stopAll() {
+  stopTimers();
+  clearTimeout(hideTimer);
+  actorVisible = false;
+  draw();
+}
+
+// ====== 小工具 ======
+function rndInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Penguin / Fugu</title>
+  <style>
+    html, body { margin: 0; padding: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans TC", Arial, sans-serif; background:#0b1020; color:#e7ecff; }
+    .wrap { max-width: 760px; margin: 24px auto; padding: 16px; }
+    .card { background: #131a33; border-radius: 16px; box-shadow: 0 6px 20px rgba(0,0,0,0.25); overflow: hidden; }
+    .topbar { display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid rgba(255,255,255,0.08); }
+    .topbar .spacer { flex:1; }
+    .btn { appearance:none; border:0; border-radius:12px; padding:8px 14px; background:#2a3a74; color:#fff; cursor:pointer; font-weight:600; }
+    .btn:hover { filter:brightness(1.1); }
+    .btn:disabled { opacity:.5; cursor:not-allowed; }
+    .panel { padding:16px; display:flex; justify-content:center; align-items:center; background:#0c1430; }
+    canvas { width:600px; height:400px; image-rendering: crisp-edges; image-rendering: pixelated; }
+    .select { display:flex; flex-direction:column; gap:16px; align-items:center; padding:24px; }
+    .row { display:flex; gap:16px; }
+    .title { font-size:20px; font-weight:800; }
+    .muted { color:#9bb0ff; font-size:13px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="topbar">
+        <div>時間：<span id="time">00:30</span></div>
+        <div style="width:12px"></div>
+        <div>分數：<span id="score">0</span></div>
+        <div class="spacer"></div>
+        <button id="pauseBtn" class="btn" disabled>暫停</button>
+        <button id="exitBtn" class="btn" disabled>離開</button>
+      </div>
+      <div class="panel">
+        <!-- 選角畫面 -->
+        <div id="selectView" class="select">
+          <div class="title">選擇進入角色</div>
+          <div class="row">
+            <button id="playPenguin" class="btn">進入企鵝遊戲</button>
+            <button id="playFugu" class="btn">進入河豚遊戲</button>
+          </div>
+          <div class="muted">小提醒：點角色就開始倒數 30 秒，暫停/恢復在右上角</div>
+        </div>
+
+        <!-- 遊戲畫面（一開始隱藏） -->
+        <canvas id="game" width="600" height="400" style="display:none"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
